@@ -1,0 +1,1 @@
+gcloud run deploy feishu-clash-demo --source . --allow-unauthenticated --service-account=tryon-live-gemini@eyeweb-wb-20251211.iam.gserviceaccount.com --region=asia-southeast1 --project=eyeweb-wb-20251211 --port=8080 --memory=2Gi

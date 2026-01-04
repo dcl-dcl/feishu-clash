@@ -1,0 +1,345 @@
+import { 
+    basekit, FieldType,
+    field, FieldComponent,
+    FieldCode
+ } from '@lark-opdev/block-basekit-server-api';
+const { t } = field;
+
+const feishuDm = ['feishu.cn', 'feishucdn.com', 'larksuitecdn.com', 'larksuite.com'];
+basekit.addDomainList([...feishuDm]);
+
+/**
+ * 调用封装好的 Gemini API 生成图片
+ */
+async function callGeminiImageGeneration(
+    images: any[], // 从字段捷径传入的图片数组
+    prompt: string,
+    aspectRatio: string,
+    imageSize: string,
+    apiEndpoint: string,
+    apiKey: string,
+    debugLog: Function
+): Promise<{
+    success: boolean;
+    generatedImageUrl?: string;
+    error?: string;
+}> {
+  try {
+      debugLog({
+        '调用 Gemini API 生成图片': {
+            '图片数量': images.length,
+            '提示词': prompt,
+            '宽高比': aspectRatio,
+            '图片尺寸': imageSize,
+            'API端点': apiEndpoint,
+        }
+      });
+      let imageUrls: string[] = [];
+      // 判断是否是图片类型 其他类型 则返回错误
+      for (const image of images) {
+          if (!image.type.startsWith("image")) {
+              debugLog(`❌ 图片类型错误，仅支持图片类型，当前类型: ${image.type}`);
+              return {
+                  success: false,
+                  error: `图片类型错误，仅支持图片类型，当前类型: ${image.type}`
+              };
+          }
+          imageUrls.push(image.tmp_url);
+      }
+      // 准备参数
+      const formData = new FormData();
+      formData.append('prompt', prompt);
+      formData.append('aspect_ratio', aspectRatio || "1:1");
+      formData.append('image_size', imageSize || "1K");
+      if (imageUrls.length > 0) {
+        formData.append('image_urls', JSON.stringify(imageUrls));
+      }
+      // 准备请求头 - 添加认证信息
+      const headers: Record<string, string> = {};
+      headers['x-api-key'] = apiKey;
+  
+      // 调用API
+      apiEndpoint = apiEndpoint.replace(/\/$/, '') + '/api/generate-image';
+      debugLog(`📤 发送请求到: ${apiEndpoint}`);
+      const response = await fetch(apiEndpoint, {
+          method: 'POST',
+          body: formData,
+          headers: headers
+      });
+        
+      if (!response.ok) {
+        const errorText = await response.text();
+        debugLog(`❌ API请求失败: ${response.status} - ${errorText}`);
+        return {
+            success: false,
+            error: `API请求失败: ${response.status} ${errorText}`
+        };
+      }
+    
+      const result: any = await response.json();
+      debugLog({
+          'API响应结果': {
+          success: result.success,
+          message: result.message,
+          resultData: result.resultData,
+          }
+      });
+      if (result.status !== 'success') {
+          return {
+              success: false,
+              error: result.message || 'API返回状态异常'
+          };
+      }
+      
+      return {
+        success: true,
+        generatedImageUrl: result.image_url
+      }
+        
+    } catch (error: any) {
+        debugLog(`💥 调用API时发生异常: ${error.message}`);
+        return {
+            success: false,
+            error: `调用API失败: ${error.message}`
+        };
+    }
+}
+
+basekit.addField({
+  i18n: {
+    messages: {
+      'zh-CN': {
+        'image': '参考图片',
+        'prompt': '生成提示词',
+        'generate': '生成图片',
+        'aspectRatio': '图片生成比例',
+        'imageSize': '图片生成分辨率',
+        'apiEndpoint': 'API调用地址',
+        'apiKey': 'API Key',
+      },
+      'en-US': {
+        'image': 'Reference Image',
+        'prompt': 'Generation Prompt',
+        'generate': 'Generate Image',
+        'aspectRatio': 'Image Aspect Ratio',
+        'imageSize': 'Image Size',
+        'apiEndpoint': 'API Endpoint',
+        'apiKey': 'API Key',
+      }
+    }
+  },
+  formItems: [
+    {
+        key: 'apiEndpoint',
+        label: t('apiEndpoint'),
+        component: FieldComponent.Input,
+        props: {
+            placeholder: '请输入API调用地址',
+        },
+        validator: {
+            required: true,
+        }
+    },
+    {
+        key: 'apiKey',
+        label: t('apiKey'),
+        component: FieldComponent.Input,
+        props: {
+            placeholder: '请输入API Key',
+        },
+        validator: {
+            required: true,
+        }
+    },
+    {
+        key: 'image',
+        label: t('image'),
+        component: FieldComponent.FieldSelect,
+        props: {
+            supportType: [FieldType.Attachment],
+            multiple: true
+        },
+        validator: {
+            required: false,
+        }
+    },
+    {
+        key: 'prompt',
+        label: t('prompt'),
+        component: FieldComponent.Input,
+        props: {
+            placeholder: '请输入图片生成提示词',
+        },
+        validator: {
+            required: true,
+        }
+    },
+    {
+        key: 'aspectRatio',
+        label: t('aspectRatio'),
+        component: FieldComponent.SingleSelect,
+        props: {
+            placeholder: '请选择图片生成比例',
+            options: [
+                { value: '1:1', label: '1:1' },
+                { value: '3:2', label: '3:2' },
+                { value: '2:3', label: '2:3' },
+                { value: '4:3', label: '4:3' },
+                { value: '3:4', label: '3:4' },
+                { value: '4:5', label: '4:5' },
+                { value: '5:4', label: '5:4' },
+                { value: '9:16', label: '9:16' },
+                { value: '16:9', label: '16:9' },
+                { value: '21:9', label: '21:9' },
+            ],
+            defaultValue: '1:1',
+        },
+        validator: {
+            required: true,
+        }
+    },
+    {
+        key: 'imageSize',
+        label: t('imageSize'),
+        component: FieldComponent.SingleSelect,
+        props: {
+            placeholder: '请选择图片生成分辨率',
+            options: [
+                { value: '1K', label: '1K' },
+                { value: '2K', label: '2K' },
+                { value: '4K', label: '4K' },
+            ],
+            defaultValue: '1K',
+        },
+        validator: {
+            required: true,
+        }
+    }
+  ],
+  resultType: {
+    type: FieldType.Attachment,
+  },
+  execute: async (formItemParams: any, context: any) => {
+    const { image = [], prompt = '', aspectRatio = '', imageSize = '', apiEndpoint = '', apiKey = '' } = formItemParams;
+    
+    function debugLog(arg: any, showContext: boolean = false) {
+      const timestamp = new Date().toISOString();
+      
+      if (typeof arg === 'object' && !Array.isArray(arg)) {
+        const logData: any = {
+          timestamp,
+          logID: context.logID || 'no_log_id',
+          ...arg
+        };
+        
+        if (showContext) {
+          logData.context = {
+            packID: context.packID,
+            extensionID: context.extensionID,
+            hasTenantKey: !!context.tenantKey,
+            tenantKey: context.tenantKey ? '***' + context.tenantKey.slice(-8) : '无',
+            hasTenantAccessToken: !!context.tenantAccessToken,
+            tenantAccessToken: context.tenantAccessToken ? '***' + context.tenantAccessToken.slice(-8) : '无',
+            hasAppToken: !!context.app?.token,
+            appToken: context.app?.token ? '***' + context.app.token.slice(-8) : '无',
+            disableCredential: context.disableCredential,
+            baseID: context.baseID,
+            tableID: context.tableID,
+            environment: process.env.NODE_ENV || 'unknown'
+          };
+          logData.formItemParams = {
+            imageCount: image.length,
+            promptLength: prompt.length,
+            promptPreview: prompt.length > 50 ? prompt.substring(0, 50) + '...' : prompt
+          };
+        }
+        
+        console.log(JSON.stringify(logData, null, 2));
+      } else {
+        const logData: any = {
+          timestamp,
+          logID: context.logID || 'no_log_id',
+          message: String(arg)
+        };
+        
+        if (showContext) {
+          logData.context = {
+            packID: context.packID,
+            extensionID: context.extensionID,
+            hasTenantAccessToken: !!context.tenantAccessToken,
+            disableCredential: context.disableCredential
+          };
+        }
+        
+        console.log(JSON.stringify(logData, null, 2));
+      }
+    }
+    debugLog('🚀 开始执行字段捷径 - Gemini图片生成', true);
+
+    try {
+      if (!apiEndpoint || apiEndpoint.trim() === '') {
+        return {
+          code: FieldCode.Error,
+          message: '请输入API调用地址'
+        };
+      }
+      if (!apiKey || apiKey.trim() === '') {
+        return {
+          code: FieldCode.Error,
+          message: '请输入API Key'
+        };
+      }
+      if (!prompt || prompt.trim() === '') {
+        return {
+          code: FieldCode.Error,
+          message: '请输入图片生成提示词'
+        };
+      }
+      
+      debugLog(`🎯 准备生成图片，使用 ${image.length} 张参考图片，提示词: "${prompt}"`);
+      
+      // 调用Gemini API生成图片
+      const result = await callGeminiImageGeneration(
+        image, prompt, aspectRatio?.value, imageSize?.value,
+        apiEndpoint, apiKey,
+        debugLog
+      );
+      
+      if (result.success && result.generatedImageUrl) {
+        debugLog(`✅ 图片生成成功，URL: ${result.generatedImageUrl.substring(0, 100)}...`);
+        // 返回生成的图片URL
+        return {
+          code: FieldCode.Success,
+          data: [{
+            name: `nano-banana-generated-${Date.now()}.png`,
+            content: result.generatedImageUrl, // 使用生成的图片URL
+            contentType: 'attachment/url',
+          }]
+        };
+        
+      } else {
+        debugLog(`❌ 图片生成失败: ${result.error}`);
+        // 返回错误信息
+        return {
+          code: FieldCode.Error,
+          message: `${result.error}` || '图片生成失败'
+        };
+      }
+      
+    } catch (error: any) {
+      debugLog({
+        '💥 未捕获的异常': {
+          message: error.message,
+          stack: error.stack?.split('\n').slice(0, 5).join('\n'),
+          errorTime: new Date().toISOString()
+        }
+      });
+      return {
+        code: FieldCode.Error,
+        message: `系统错误: ${error.message}`
+      };
+    }
+  }
+});
+
+export default basekit;
