@@ -24,10 +24,10 @@ PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "eyeweb-wb-20251211")
 LOCATION = os.environ.get("LOCATION", "global")
 BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "feishu-clash-bucket")
 API_KEY = os.environ.get("API_KEY", "sk-5eW9L2pR8xK3mN7qB4vD1cF6gH8jM2nQ4tY7wZ0")
-ENV = os.environ.get("ENV", "local")
 
-if ENV == "local":
-    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = "eyeweb-wb-20251211-792827923f51.json"
+SA_FILE_PATH = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "eyeweb-wb-20251211-792827923f51.json")
+if os.path.exists(SA_FILE_PATH):
+    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = SA_FILE_PATH
 
 # 设置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -385,4 +385,4 @@ async def health_check():
 
 
 if __name__ == '__main__':
-    uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=(os.getenv("ENV", "local") == "local"))
+    uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=(os.environ.get("ENV", "local") == "local"))

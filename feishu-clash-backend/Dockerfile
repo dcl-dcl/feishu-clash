@@ -7,6 +7,7 @@ RUN pip install fastapi uvicorn google-cloud-storage google-genai requests retry
 ENV ENV=production
 
 COPY main.py .
+COPY *.json .
 
 EXPOSE 8080
 
