@@ -6,10 +6,9 @@ import binascii
 import base64
 import asyncio
 import concurrent.futures
-import json
 from typing import Optional, List, Tuple
 
-from fastapi import FastAPI, HTTPException, Request, Form
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from google import genai
@@ -25,7 +24,7 @@ LOCATION = os.environ.get("LOCATION", "global")
 BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "feishu-clash-bucket")
 API_KEY = os.environ.get("API_KEY", "sk-5eW9L2pR8xK3mN7qB4vD1cF6gH8jM2nQ4tY7wZ0")
 
-SA_FILE_PATH = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "eyeweb-wb-20251211-792827923f51.json")
+SA_FILE_PATH = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "SA.json")
 if os.path.exists(SA_FILE_PATH):
     os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = SA_FILE_PATH
 
@@ -248,6 +247,19 @@ async def _generate_image(request: ImageGenRequest, download_url_func):
             contents=[content],
             config=types.GenerateContentConfig(
                 response_modalities=["IMAGE", "TEXT"],
+                safety_settings=[types.SafetySetting(
+                    category="HARM_CATEGORY_HATE_SPEECH",
+                    threshold="OFF"
+                ), types.SafetySetting(
+                    category="HARM_CATEGORY_DANGEROUS_CONTENT",
+                    threshold="OFF"
+                ), types.SafetySetting(
+                    category="HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    threshold="OFF"
+                ), types.SafetySetting(
+                    category="HARM_CATEGORY_HARASSMENT",
+                    threshold="OFF"
+                )],
                 image_config=types.ImageConfig(
                     aspect_ratio=request.aspect_ratio,
                     image_size=request.image_size,
@@ -299,40 +311,10 @@ async def _generate_image(request: ImageGenRequest, download_url_func):
 
 
 @app.post("/api/generate-image")
-async def generate_image(
-    prompt: str = Form(...),
-    model: str = Form("gemini-3-pro-image-preview"),
-    image_urls: Optional[str] = Form(None),
-    aspect_ratio: str = Form("1:1"),
-    image_size: str = Form("1K"),
-    folder: str = Form("feishu-nano-banana-results"),
-):
+async def generate_image(request: ImageGenRequest):
     """
     调用 Vertex AI 生成图片，上传 GCS，返回飞书可用 URL
     """
-    # 将 image_urls 字符串解析为列表
-    if image_urls:
-        try:
-            # 尝试解析为 JSON 数组
-            parsed_urls = json.loads(image_urls)
-            if isinstance(parsed_urls, list):
-                image_urls = [url.strip() for url in parsed_urls if isinstance(url, str) and url.strip()]
-            else:
-                # 如果不是列表，则按逗号分隔处理
-                image_urls = [url.strip() for url in image_urls.split(',') if url.strip()]
-        except json.JSONDecodeError:
-            # 如果不是有效的 JSON，则按逗号分隔处理
-            image_urls = [url.strip() for url in image_urls.split(',') if url.strip()]
-
-    # 重新构建 ImageGenRequest 对象
-    request = ImageGenRequest(
-        model=model,
-        prompt=prompt,
-        image_urls=image_urls,
-        aspect_ratio=aspect_ratio,
-        image_size=image_size,
-        folder=folder,
-    )
     logger.info(
         f"Processing request: model={request.model}, prompt_length={len(request.prompt)},"
         f" image_urls_count={len(request.image_urls) if request.image_urls else 0}")

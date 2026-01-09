@@ -6,7 +6,7 @@ import {
 const { t } = field;
 
 const feishuDm = ['feishu.cn', 'feishucdn.com', 'larksuitecdn.com', 'larksuite.com'];
-basekit.addDomainList([...feishuDm]);
+basekit.addDomainList([...feishuDm, "asia-southeast1.run.app"]);
 
 /**
  * 调用封装好的 Gemini API 生成图片
@@ -47,23 +47,26 @@ async function callGeminiImageGeneration(
           imageUrls.push(image.tmp_url);
       }
       // 准备参数
-      const formData = new FormData();
-      formData.append('prompt', prompt);
-      formData.append('aspect_ratio', aspectRatio || "1:1");
-      formData.append('image_size', imageSize || "1K");
+      const payload: any = {
+          prompt: prompt,
+          aspect_ratio: aspectRatio || "1:1",
+          image_size: imageSize || "1K",
+      };
       if (imageUrls.length > 0) {
-        formData.append('image_urls', JSON.stringify(imageUrls));
+        payload.image_urls = imageUrls;
       }
       // 准备请求头 - 添加认证信息
-      const headers: Record<string, string> = {};
-      headers['x-api-key'] = apiKey;
+      const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey
+      };
   
       // 调用API
       apiEndpoint = apiEndpoint.replace(/\/$/, '') + '/api/generate-image';
       debugLog(`📤 发送请求到: ${apiEndpoint}`);
       const response = await fetch(apiEndpoint, {
           method: 'POST',
-          body: formData,
+          body: JSON.stringify(payload),
           headers: headers
       });
         
