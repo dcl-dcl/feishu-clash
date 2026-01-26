@@ -1,10 +1,12 @@
-import { testField, createFieldContext } from "@lark-opdev/block-basekit-server-api";
+import { testField, createFieldContext, FieldContext } from "@lark-opdev/block-basekit-server-api";
 
 async function run() {
-    const context = await createFieldContext();
+    const context = await createFieldContext({
+        baseSignature: 'mock-signature'
+    });
     testField({
         account: 100,
-    }, context);
+    }, context as FieldContext);
 }
 
 run();

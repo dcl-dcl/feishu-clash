@@ -9,28 +9,26 @@ const feishuDm = ['feishu.cn', 'feishucdn.com', 'larksuitecdn.com', 'larksuite.c
 basekit.addDomainList([...feishuDm, "asia-southeast1.run.app"]);
 
 
-async function callNanoBanana(
-    images: any[], // 从字段捷径传入的图片数组
-    prompt: string,
-    aspectRatio: string,
-    imageSize: string,
-    apiEndpoint: string,
-    apiKey: string,
-    debugLog: Function
+async function callGemini(
+  modelId: string,
+  thinkingLevel: string,
+  images: any[], // 从字段捷径传入的图片数组
+  prompt: string,
+  apiEndpoint: string,
+  apiKey: string,
+  debugLog: Function
 ): Promise<{
     success: boolean;
-    generatedImageUrl?: string;
-    filename?: string;
+    text?: string;
     error?: string;
 }> {
   try {
       debugLog({
-        '调用 Gemini API 生成图片': {
-            '图片数量': images.length,
-            '提示词': prompt,
-            '宽高比': aspectRatio,
-            '图片尺寸': imageSize,
-            'API端点': apiEndpoint,
+        '调用 Gemini API 生成文案': {
+          'Model ID': modelId,
+          '图片数量': images.length,
+          '提示词': prompt,
+          'API端点': apiEndpoint,
         }
       });
       let imageUrls: string[] = [];
@@ -47,20 +45,21 @@ async function callNanoBanana(
       }
       // 准备参数
       const payload: any = {
-          prompt: prompt,
-          aspect_ratio: aspectRatio || "1:1",
-          image_size: imageSize || "1K",
+        model: modelId,
+        prompt: prompt,
+        thinking_level: thinkingLevel,
       };
       if (imageUrls.length > 0) {
         payload.image_urls = imageUrls;
-      }
+    }
+    // debugLog(`paload: ${payload}`)
       // 准备请求头 - 添加认证信息
       const headers: Record<string, string> = {
           'Content-Type': 'application/json',
           'x-api-key': apiKey
       };
       // 调用API
-      apiEndpoint = apiEndpoint.replace(/\/$/, '') + '/api/generate-image';
+      apiEndpoint = apiEndpoint.replace(/\/$/, '') + '/api/generate-text';
       debugLog(`📤 发送请求到: ${apiEndpoint}`);
       const response = await fetch(apiEndpoint, {
           method: 'POST',
@@ -78,16 +77,10 @@ async function callNanoBanana(
       }
 
       const result: any = await response.json();
-      debugLog({
-          'API响应结果': {
-          success: result.success,
-          result: result
-          }
-      });
+      // debugLog({'API响应结果': { success: result.success, result: result}});
       return {
         success: true,
-        generatedImageUrl: result.image_url,
-        filename: result?.filename || `nano-banana-generated-${Date.now()}.png`
+        text: result.text
       }
         
     } catch (error: any) {
@@ -105,20 +98,18 @@ basekit.addField({
       'zh-CN': {
         'image': '参考图片',
         'prompt': '提示词',
-        'generate': '生成图片',
-        'aspectRatio': '图片生成比例',
-        'imageSize': '图片生成分辨率',
         'apiEndpoint': 'API调用地址',
         'apiKey': 'API Key',
+        'modelId': '模型',
+        'thinkingLevel': 'Thinking Level'
       },
       'en-US': {
         'image': 'Reference Image',
         'prompt': 'Prompt',
-        'generate': 'Generate Image',
-        'aspectRatio': 'Image Aspect Ratio',
-        'imageSize': 'Image Size',
         'apiEndpoint': 'API Endpoint',
         'apiKey': 'API Key',
+        'modelId': 'Model',
+        'thinkingLevel': 'Thinking Level'
       }
     }
   },
@@ -146,6 +137,37 @@ basekit.addField({
         }
     },
     {
+      key: 'modelId',
+      label: t('modelId'),
+      component: FieldComponent.SingleSelect,
+      props: {
+        placeholder: '请选择模型',
+        options: [
+          { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro Preview' },
+          { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
+          { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+          { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+          { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
+        ],
+        defaultValue: 'gemini-3-pro-preview',
+        validator: {
+            required: true,
+        }
+      }
+    },
+    {
+      key: 'thinkingLevel',
+      label: t('thinkingLevel'),
+      component: FieldComponent.SingleSelect,
+      props: {
+        options: [
+          { value: 'HIGH', label: 'High' },
+          { value: 'LOW', label: 'Low' },
+        ],
+        defaultValue: 'HIGH',
+      }
+    },
+    {
         key: 'image',
         label: t('image'),
         component: FieldComponent.FieldSelect,
@@ -168,53 +190,15 @@ basekit.addField({
             required: true,
         }
     },
-    {
-        key: 'aspectRatio',
-        label: t('aspectRatio'),
-        component: FieldComponent.SingleSelect,
-        props: {
-            placeholder: '请选择图片生成比例',
-            options: [
-                { value: '1:1', label: '1:1' },
-                { value: '3:2', label: '3:2' },
-                { value: '2:3', label: '2:3' },
-                { value: '4:3', label: '4:3' },
-                { value: '3:4', label: '3:4' },
-                { value: '4:5', label: '4:5' },
-                { value: '5:4', label: '5:4' },
-                { value: '9:16', label: '9:16' },
-                { value: '16:9', label: '16:9' },
-                { value: '21:9', label: '21:9' },
-            ],
-            defaultValue: '1:1',
-        },
-        validator: {
-            required: true,
-        }
-    },
-    {
-        key: 'imageSize',
-        label: t('imageSize'),
-        component: FieldComponent.SingleSelect,
-        props: {
-            placeholder: '请选择图片生成分辨率',
-            options: [
-                { value: '1K', label: '1K' },
-                { value: '2K', label: '2K' },
-                { value: '4K', label: '4K' },
-            ],
-            defaultValue: '1K',
-        },
-        validator: {
-            required: true,
-        }
-    }
   ],
   resultType: {
-    type: FieldType.Attachment,
+    type: FieldType.Text,
   },
   execute: async (formItemParams: any, context: any) => {
-    const { image = [], prompt = '', aspectRatio = '', imageSize = '', apiEndpoint = '', apiKey = '' } = formItemParams;
+    const { 
+      image = [], modelId = '', thinkingLevel = 'HIGH',
+      prompt = '', apiEndpoint = '', apiKey = '',
+     } = formItemParams;
     
     function debugLog(arg: any, showContext: boolean = false) {
       const timestamp = new Date().toISOString();
@@ -268,7 +252,7 @@ basekit.addField({
         console.log(JSON.stringify(logData, null, 2));
       }
     }
-    debugLog('🚀 开始执行字段捷径 - Gemini图片生成', true);
+    debugLog('🚀 开始执行字段捷径 - Gemini文字生成', true);
 
     try {
       if (!apiEndpoint || apiEndpoint.trim() === '') {
@@ -286,33 +270,26 @@ basekit.addField({
       if (!prompt || prompt.trim() === '') {
         return {
           code: FieldCode.Error,
-          message: '请输入图片生成提示词'
+          message: '请输入提示词'
         };
       }
-
-      // 调用Gemini API生成图片
-      const result = await callNanoBanana(
-        image || [], prompt, aspectRatio?.value, imageSize?.value,
-        apiEndpoint, apiKey,
+      // 调用Gemini 生成文本
+      const result = await callGemini(
+        modelId.value, thinkingLevel?.value,
+        image, prompt, apiEndpoint, apiKey,
         debugLog
       );
       
-      if (result.success && result.generatedImageUrl) {
-        debugLog(`✅ 图片生成成功，URL: ${result.generatedImageUrl.substring(0, 100)}...`);
-        // 返回生成的图片URL
+      if (result.success && result.text) {
         return {
           code: FieldCode.Success,
-          data: [{
-            name: result.filename,
-            content: result.generatedImageUrl, // 使用生成的图片URL
-            contentType: 'attachment/url',
-          }]
+          data: result.text
         };
         
       } else {
         return {
           code: FieldCode.Error,
-          message: `${result.error}` || '图片生成失败'
+          message: `${result.error}`
         };
       }
       

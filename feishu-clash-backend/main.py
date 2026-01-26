@@ -1,30 +1,30 @@
-import os
-import uvicorn
-import logging
-import uuid
-import binascii
-import base64
 import asyncio
+import base64
+import binascii
 import concurrent.futures
-from typing import Optional, List, Tuple
+import logging
+import os
+import uuid
+from typing import List, Optional, Tuple
 
+import requests
+import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 from google import genai
-from google.genai import types
 from google.cloud import storage
 from google.cloud.storage import Blob, Bucket
+from google.genai import types
 from google.oauth2.service_account import Credentials
-import requests
+from pydantic import BaseModel
 from retrying import retry
 
-PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "eyeweb-wb-20251211")
+PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "project-webeye-tryon")
 LOCATION = os.environ.get("LOCATION", "global")
 BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "feishu-clash-bucket")
 API_KEY = os.environ.get("API_KEY", "sk-5eW9L2pR8xK3mN7qB4vD1cF6gH8jM2nQ4tY7wZ0")
 
-SA_FILE_PATH = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "SA.json")
+SA_FILE_PATH = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "sa.json")
 if os.path.exists(SA_FILE_PATH):
     os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = SA_FILE_PATH
 
@@ -38,7 +38,7 @@ app = FastAPI()
 client = genai.Client(
     vertexai=True,
     project=PROJECT_ID,
-    location=LOCATION,
+    location=LOCATION
 )
 
 
@@ -52,9 +52,15 @@ async def auth_middleware(request: Request, call_next):
     api_key = request.headers.get("x-api-key", "")
     if api_key != API_KEY:
         return JSONResponse(status_code=401, content={"detail": "Invalid or missing API Key"})
-
-    response = await call_next(request)
-    return response
+    try:
+        response = await call_next(request)
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 class GCS:
@@ -184,6 +190,12 @@ async def download_url(url: str) -> Tuple[bytes, str]:
         logger.error(f"下载图片发生未知错误: {e}")
         raise HTTPException(status_code=500, detail=f"图片下载发生未知错误: {str(e)}")
 
+# 文本生成请求模型
+class TextGenRequest(BaseModel):
+    model: str = "gemini-3-pro-preview"
+    prompt: str
+    image_urls: Optional[List[str]] = None
+    thinking_level: str = "LOW"
 
 # 图片生成请求模型
 class ImageGenRequest(BaseModel):
@@ -205,6 +217,31 @@ def retry_if_error(exception):
         is_retry = True
     return is_retry
 
+async def _prepare_content(prompt: str, image_urls: List[str] = None):
+    # 1. 准备 Prompt 内容
+    parts = [types.Part.from_text(text=prompt)]
+    if not image_urls:
+        return types.Content(parts=parts, role="user")
+    # 2. 如果有图片 URL，并发下载
+    download_tasks = []
+    for url in image_urls:
+        download_tasks.append(download_url(url))
+
+    # 并发下载所有图片
+    downloaded_images = await asyncio.gather(*download_tasks, return_exceptions=True)
+
+    for i, result in enumerate(downloaded_images):
+        if isinstance(result, Exception):
+            logger.error(f"下载图片 {image_urls[i]} 失败: {result}")
+            raise HTTPException(status_code=400, detail=f"图片下载失败: {str(result)}")
+
+        image_bytes, mime_type = result
+        parts.append(
+            types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+        )
+
+    return types.Content(parts=parts, role="user")
+
 
 @retry(
     stop_max_attempt_number=3,
@@ -212,35 +249,12 @@ def retry_if_error(exception):
     wait_exponential_multiplier=1000,
     wait_exponential_max=10000,
 )
-async def _generate_image(request: ImageGenRequest, download_url_func):
+async def _generate_image(request: ImageGenRequest):
     """
     调用 Gemini API 生成图片
     """
-    # 1. 准备 Prompt 内容
-    parts = [types.Part.from_text(text=request.prompt)]
-
-    # 2. 如果有图片 URL，并发下载
-    if request.image_urls:
-        download_tasks = []
-        for url in request.image_urls:
-            download_tasks.append(download_url_func(url))
-
-        # 并发下载所有图片
-        downloaded_images = await asyncio.gather(*download_tasks, return_exceptions=True)
-
-        for i, result in enumerate(downloaded_images):
-            if isinstance(result, Exception):
-                logger.error(f"下载图片 {request.image_urls[i]} 失败: {result}")
-                raise HTTPException(status_code=400, detail=f"图片下载失败: {str(result)}")
-
-            image_bytes, mime_type = result
-            parts.append(
-                types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
-            )
-
-    content = types.Content(parts=parts, role="user")
-
-    # 3. 调用 Google GenAI SDK 生成图片
+    content = await _prepare_content(request.prompt, request.image_urls)
+    # 调用 Google GenAI SDK 生成图片
     try:
         response_stream = client.models.generate_content_stream(
             model=request.model,
@@ -309,56 +323,83 @@ async def _generate_image(request: ImageGenRequest, download_url_func):
     return generated_images[0]
 
 
+async def _generate_text(request: TextGenRequest):
+    content = await _prepare_content(request.prompt, request.image_urls)
+    if 'gemini-3' in request.model and request.thinking_level:
+        thinking_config = types.ThinkingConfig(
+            TextGenRequest.thinking_level or "LOW"
+        )
+    else:
+        thinking_config = None
+    try:
+        response_stream = client.models.generate_content_stream(
+            model=request.model,
+            contents=[content],
+            config=types.GenerateContentConfig(
+                response_modalities=["TEXT"],
+                thinking_config=thinking_config
+            )
+        )
+        text = ''
+        for chunk in response_stream:
+            text += chunk.text
+        return text.strip()
+
+    except Exception as e:
+        logger.info(e)
+        raise HTTPException(status_code=500, detail=f"模型生图失败，错误原因：{e}"[:100])
+
 
 @app.post("/api/generate-image")
 async def generate_image(request: ImageGenRequest):
     """
-    调用 Vertex AI 生成图片，上传 GCS，返回飞书可用 URL
+    调用 Nano Banana 生成图片，上传 GCS，返回飞书可用 URL
     """
     logger.info(
         f"Processing request: model={request.model}, prompt_length={len(request.prompt)},"
         f" image_urls_count={len(request.image_urls) if request.image_urls else 0}")
+    image = await _generate_image(request)
+    # 上传到 GCS
+    mime_to_ext = {
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+        "image/gif": ".gif"
+    }
+    mime_type = image["mime_type"]
+    extension = mime_to_ext.get(mime_type, ".png")
 
-    try:
-        image = await _generate_image(request, download_url)
-        # 5. 上传到 GCS
-        # 从 MIME 类型获取文件扩展名
-        mime_to_ext = {
-            "image/jpeg": ".jpg",
-            "image/jpg": ".jpg",
-            "image/png": ".png",
-            "image/webp": ".webp",
-            "image/gif": ".gif"
-        }
-        mime_type = image["mime_type"]
-        extension = mime_to_ext.get(mime_type, ".png")
+    filename = os.path.join(request.folder, f"{uuid.uuid4().hex}{extension}")
 
-        filename = os.path.join(request.folder, f"{uuid.uuid4().hex}{extension}")
+    signed_url = gcs_client.upload_base64_image(
+        image["data"],
+        bucket_name=BUCKET_NAME,
+        object_name=filename,
+        mime_type=mime_type,
+    )
+    # 构造返回结果
+    result = {
+        "status": "success",
+        "image_url": signed_url,
+        "filename": filename,
+        "model_used": request.model,
+        "mime_type": mime_type
+    }
+    logger.info(f"Image generated: {result}")
+    return result
 
-        signed_url = gcs_client.upload_base64_image(
-            image["data"],
-            bucket_name=BUCKET_NAME,
-            object_name=filename,
-            mime_type=mime_type,
-        )
-        # 6. 构造返回结果
-        result = {
-            "status": "success",
-            "image_url": signed_url,
-            "filename": filename,
-            "model_used": request.model,
-            "mime_type": mime_type
-        }
-        logger.info(f"Image generated: {result}")
-        return result
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Image generation failed: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+@app.post("/api/generate-text")
+async def generate_text(request: TextGenRequest):
+    """
+    调用 gemini 生成文本
+    """
+    logger.info(
+        f"Processing request: model={request.model}, prompt_length={len(request.prompt)},"
+        f" image_urls_count={len(request.image_urls) if request.image_urls else 0}")
+    text = await _generate_text(request)
+    return {"text": text}
 
 
 @app.get("/api/health")
@@ -367,4 +408,4 @@ async def health_check():
 
 
 if __name__ == '__main__':
-    uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=(os.environ.get("ENV", "local") == "local"))
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=(os.environ.get("ENV", "local") == "local"))
