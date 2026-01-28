@@ -22,6 +22,7 @@ async function callGemini(
     text?: string;
     error?: string;
 }> {
+  if (!images) images = [];
   try {
       debugLog({
         '调用 Gemini API 生成文案': {

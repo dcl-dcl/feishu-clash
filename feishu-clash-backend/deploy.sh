@@ -1,10 +1,12 @@
 #!/bin/bash
 
 # 部署配置变量
-SERVICE_NAME="feishu-clash-demo"
-PROJECT_ID="eyeweb-wb-20251211"
+SERVICE_NAME="feishu-clash"
+# PROJECT_ID="eyeweb-wb-fanso"
+# SERVICE_ACCOUNT="fanso-feishu-clash@eyeweb-wb-fanso.iam.gserviceaccount.com"
+PROJECT_ID="project-m-claude"
+SERVICE_ACCOUNT="feishu-clash@project-m-claude.iam.gserviceaccount.com"
 REGION="asia-southeast1"
-SERVICE_ACCOUNT="tryon-live-gemini@eyeweb-wb-20251211.iam.gserviceaccount.com"
 MEMORY="2Gi"
 CPU="1"
 PORT="8080"

@@ -2,12 +2,11 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-RUN pip install fastapi uvicorn google-cloud-storage google-genai requests retrying pydantic python-multipart
+RUN pip install fastapi uvicorn google-cloud-storage google-genai requests retrying pydantic pydantic-settings python-multipart
 
 ENV ENV=production
 
-COPY main.py .
-COPY *.json .
+COPY . .
 
 EXPOSE 8080
 

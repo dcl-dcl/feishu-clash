@@ -23,6 +23,7 @@ async function callNanoBanana(
     filename?: string;
     error?: string;
 }> {
+  if (!images) images = [];
   try {
       debugLog({
         '调用 Gemini API 生成图片': {
@@ -292,7 +293,7 @@ basekit.addField({
 
       // 调用Gemini API生成图片
       const result = await callNanoBanana(
-        image || [], prompt, aspectRatio?.value, imageSize?.value,
+        image, prompt, aspectRatio?.value, imageSize?.value,
         apiEndpoint, apiKey,
         debugLog
       );
